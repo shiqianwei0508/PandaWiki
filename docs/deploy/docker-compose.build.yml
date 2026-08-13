@@ -113,11 +113,7 @@ services:
         ipv4_address: 172.19.0.18
 
   panda-wiki-api:
-    build:
-      context: ../../backend
-      dockerfile: Dockerfile.api
-      args:
-        VERSION: local
+    image: ${PANDAWIKI_IMAGE_REPO}/pandawiki-api:${PANDAWIKI_IMAGE_TAG}
     container_name: panda-wiki-api
     restart: unless-stopped
     environment:
@@ -158,9 +154,7 @@ services:
         ipv4_address: 172.19.0.2
 
   panda-wiki-consumer:
-    build:
-      context: ../../backend
-      dockerfile: Dockerfile.consumer
+    image: ${PANDAWIKI_IMAGE_REPO}/pandawiki-consumer:${PANDAWIKI_IMAGE_TAG}
     container_name: panda-wiki-consumer
     restart: unless-stopped
     environment:
@@ -193,15 +187,14 @@ services:
         ipv4_address: 172.19.0.7
 
   panda-wiki-app:
-    build:
-      context: ../../web/app
-      dockerfile: Dockerfile
+    image: ${PANDAWIKI_IMAGE_REPO}/pandawiki-app:${PANDAWIKI_IMAGE_TAG}
     container_name: panda-wiki-app
     restart: unless-stopped
     environment:
       TARGET: http://panda-wiki-api:8000
       STATIC_FILE_TARGET: http://panda-wiki-minio:9000
       DEV_KB_ID: ${DEV_KB_ID}
+      PORT: "3010"
     depends_on:
       panda-wiki-api:
         condition: service_started
@@ -212,9 +205,7 @@ services:
         ipv4_address: 172.19.0.112
 
   panda-wiki-admin:
-    build:
-      context: ../../web/admin
-      dockerfile: Dockerfile
+    image: ${PANDAWIKI_IMAGE_REPO}/pandawiki-admin:${PANDAWIKI_IMAGE_TAG}
     container_name: panda-wiki-admin
     restart: unless-stopped
     depends_on:
@@ -223,7 +214,7 @@ services:
       panda-wiki-minio:
         condition: service_started
     ports:
-      - "2443:8080"
+      - "2443:2443"
     networks:
       default:
         ipv4_address: 172.19.0.11

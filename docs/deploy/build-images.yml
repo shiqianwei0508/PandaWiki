@@ -1,0 +1,35 @@
+# 仅构建 PandaWiki 自有镜像，不含任何第三方镜像。
+# 前端(admin/app)在容器内完成 pnpm install + build，无需宿主机预编译。
+#
+# 用法:
+#   docker compose -f build-images.yml build
+#   TAG=v1.2.3 docker compose -f build-images.yml build
+#   docker compose -f build-images.yml push
+#
+# 私有 npm 源凭证(@ctzhian/* 等)通过 BuildKit secret 传入，不写入镜像层:
+#   docker compose -f build-images.yml build \
+#     --secret "id=npmrc,src=/path/to/.npmrc"
+services:
+  pandawiki-api:
+    image: harbor.gbim.vip/freedo/pandawiki-api:${TAG:-latest}
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile.api
+
+  pandawiki-consumer:
+    image: harbor.gbim.vip/freedo/pandawiki-consumer:${TAG:-latest}
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile.consumer
+
+  pandawiki-app:
+    image: harbor.gbim.vip/freedo/pandawiki-app:${TAG:-latest}
+    build:
+      context: ../../web
+      dockerfile: app/Dockerfile
+
+  pandawiki-admin:
+    image: harbor.gbim.vip/freedo/pandawiki-admin:${TAG:-latest}
+    build:
+      context: ../../web
+      dockerfile: admin/Dockerfile

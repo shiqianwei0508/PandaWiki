@@ -1,7 +1,9 @@
-FROM --platform=$BUILDPLATFORM golang:1.26.4-alpine AS builder
+FROM --platform=$BUILDPLATFORM harbor.gbim.vip/dockerio/golang:1.26.4-alpine AS builder
 
 WORKDIR /src
 ENV CGO_ENABLED=0
+ENV GOPROXY=https://goproxy.cn,direct
+ENV GOSUMDB=off
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
@@ -14,9 +16,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags "-s -w -extldflags '-static'" -o /build/panda-wiki-consumer cmd/consumer/main.go cmd/consumer/wire_gen.go
 
-FROM alpine:3.21 AS consumer
+FROM harbor.gbim.vip/dockerio/alpine:3.21 AS consumer
 
-RUN apk update \
+RUN sed -i 's|https\?://dl-cdn.alpinelinux.org|https://mirrors.aliyun.com|g' /etc/apk/repositories \
+    && apk update \
     && apk upgrade \
     && apk add --no-cache ca-certificates tzdata \
     && update-ca-certificates 2>/dev/null || true \
