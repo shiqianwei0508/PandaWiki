@@ -10,8 +10,12 @@
 # 全部依赖（含 @ctzhian/*）均为公共包，Dockerfile 内已统一走国内镜像 registry.npmmirror.com，无需私有源凭证。
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 REPO="harbor.gbim.vip/freedo"
-TAG="${1:-${TAG:-latest}}"
+# 默认 tag 为当前最新 commit 前 8 位（短哈希），可传参或环境变量覆盖
+DEFAULT_TAG="$(git -C "${ROOT}" rev-parse --short=8 HEAD)"
+TAG="${1:-${TAG:-${DEFAULT_TAG}}}"
 PUSH="${PUSH:-1}"
 
 # 自有镜像: <dockerfile目录相对web根> <镜像后缀>
@@ -23,8 +27,6 @@ BUILD_TARGETS=(
   "web:app/Dockerfile:pandawiki-app"
   "web:admin/Dockerfile:pandawiki-admin"
 )
-
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 for entry in "${BUILD_TARGETS[@]}"; do
   IFS=':' read -r ctx dockerfile image <<< "$entry"

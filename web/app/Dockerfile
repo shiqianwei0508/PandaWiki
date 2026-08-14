@@ -19,9 +19,9 @@ COPY packages ./packages
 COPY admin ./admin
 COPY app ./app
 
-# 安装依赖。不使用 --frozen-lockfile：让 workspace overrides（tiptap 3.27.1）生效，
-# 避免解析到 3.10.1 导致 normalizeNestedOptions 缺失。
-RUN pnpm install --registry=https://registry.npmmirror.com
+# 安装依赖。显式 --no-frozen-lockfile：让 workspace overrides（tiptap 3.27.1）写入并生效，
+# 避免解析到 3.10.1 导致 normalizeNestedOptions 缺失（pnpm 10 默认 install 为 frozen 模式）。
+RUN pnpm install --no-frozen-lockfile --registry=https://registry.npmmirror.com
 
 # 构建 app（Next.js standalone 输出到 dist/）
 RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter panda-wiki-app build
