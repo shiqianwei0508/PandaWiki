@@ -47,6 +47,14 @@ server {
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
 
+    # ============================================================
+    # 知识库 ID（单域名 = 一个知识库）
+    # 前台 app 与 /share 接口都靠 X-KB-ID 头定位知识库（原 Caddy 动态注入，
+    # 去 Caddy 后改由本 Nginx 注入）。请替换为真实知识库 ID。
+    # 取值可参考后台「知识库设置」中的 ID，或 docker-compose 的 DEV_KB_ID。
+    # ============================================================
+    set $kb_id "在此填写知识库ID";
+
     # ---------- 后台管理（/admin 前缀） ----------
     # 后台 API：剥离 /admin 前缀后转发到 api
     location /admin/api/ {
@@ -74,6 +82,8 @@ server {
         proxy_pass http://pw_api;
     }
     location /share/ {
+        # 前台分享接口需 X-KB-ID 定位知识库
+        proxy_set_header X-KB-ID $kb_id;
         proxy_pass http://pw_api;
     }
     location /static-file/ {
@@ -82,6 +92,8 @@ server {
 
     # ---------- 默认：前台站点 ----------
     location / {
+        # 前台 app 靠 X-KB-ID 头确定当前知识库（原 Caddy 注入，现由 Nginx 注入）
+        proxy_set_header X-KB-ID $kb_id;
         proxy_pass http://pw_app;
     }
 }
