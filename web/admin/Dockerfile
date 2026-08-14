@@ -12,7 +12,7 @@ ENV PNPM_CONFIG_REGISTRY=https://registry.npmmirror.com
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
 # 仅复制需要的 workspace 文件与源码（利用层缓存）
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json* ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json* tsconfig.base.json ./
 COPY packages ./packages
 COPY admin ./admin
 COPY app ./app
