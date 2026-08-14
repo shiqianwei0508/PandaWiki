@@ -52,9 +52,10 @@ COPY app/tsconfig.json ./app/tsconfig.json
 
 # 仅安装 app 生产依赖（--prod 跳过 devDeps；--filter 只解析 panda-wiki-app 及其传递依赖，
 # 不会把 admin 等其它 workspace 包拉进 /app/node_modules）。
+# --ignore-scripts：跳过根 package.json 的 prepare（husky 装 git hooks），镜像里不需要且 husky 为 devDep 会导致 husky: not found。
 # 显式 --no-frozen-lockfile：根 package.json 直接依赖 @tiptap/extension-drag-handle@3.27.1
 # （满足 @ctzhian/tiptap 的 peer，详见 builder 阶段注释）。
-RUN pnpm install --prod --no-frozen-lockfile --filter panda-wiki-app... --registry=https://registry.npmmirror.com
+RUN pnpm install --prod --no-frozen-lockfile --ignore-scripts --filter panda-wiki-app... --registry=https://registry.npmmirror.com
 
 # 复制 Next 构建产物与静态资源（用 next start 而非 standalone server.js）。
 # next.config 中 distDir: 'dist'，故构建产物复制到 /app/dist（与 distDir 一致）。
