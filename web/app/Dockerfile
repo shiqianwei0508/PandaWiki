@@ -35,18 +35,18 @@ RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter panda-wiki-app build
 RUN pnpm install --prod --no-frozen-lockfile --ignore-scripts --registry=https://registry.npmmirror.com
 
 # === 构建期断言：把常见低级错误在 docker build 阶段就暴露，而非等到容器启动才报 ===
-# 1) next 可执行文件必须存在（之前曾因 --filter 缺 packages/ 导致 .bin/next 缺失）
+# 1) next 可执行文件必须存在。注意：next 是 panda-wiki-app 的直接依赖，pnpm 仅在其子作用域
+#    创建 .bin 软链，即 /app/app/node_modules/.bin/next（而非 workspace 根 /app/node_modules/.bin）。
 #    失败时 dump 目录结构协助排查：.bin 实际位置、next 包是否安装、app 下 node_modules 形态。
-RUN if [ -x /app/node_modules/.bin/next ]; then \
-      echo "[OK] next binary present at /app/node_modules/.bin/next"; \
+RUN if [ -x /app/app/node_modules/.bin/next ]; then \
+      echo "[OK] next binary present at /app/app/node_modules/.bin/next"; \
     else \
-      echo "ERROR: next binary missing at /app/node_modules/.bin/next"; \
+      echo "ERROR: next binary missing at /app/app/node_modules/.bin/next"; \
       echo "---- diagnostics ----"; \
       echo "[ls /app/node_modules/.bin | head]"; ls -la /app/node_modules/.bin 2>/dev/null | head -20; \
       echo "[ls /app/app/node_modules/.bin | head]"; ls -la /app/app/node_modules/.bin 2>/dev/null | head -20; \
       echo "[next pkg in /app/node_modules]"; ls -la /app/node_modules/next 2>/dev/null || echo "  /app/node_modules/next NOT FOUND"; \
       echo "[next pkg in /app/app/node_modules]"; ls -la /app/app/node_modules/next 2>/dev/null || echo "  /app/app/node_modules/next NOT FOUND"; \
-      echo "[pnpm-lock contains next?]"; grep -c '"next@' /app/pnpm-lock.yaml 2>/dev/null || echo "  lockfile grep failed"; \
       echo "----------------------"; \
       exit 1; \
     fi
@@ -59,5 +59,5 @@ RUN test -f /app/app/next.config.ts || (echo "ERROR: next.config.ts missing in /
 WORKDIR /app/app
 EXPOSE 3010
 # next start 读取 /app/app 下的 next.config.ts（cwd）与 dist/（distDir:'dist'）启动 SSR。
-# node_modules 在 workspace 根 /app/node_modules，用绝对路径指向 .bin/next。
-CMD ["/app/node_modules/.bin/next", "start", "-p", "3010"]
+# next 是 panda-wiki-app 直接依赖，其 .bin 在 /app/app/node_modules/.bin/next（pnpm 子作用域软链）。
+CMD ["/app/app/node_modules/.bin/next", "start", "-p", "3010"]
