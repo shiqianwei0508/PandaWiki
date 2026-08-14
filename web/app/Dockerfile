@@ -36,7 +36,20 @@ RUN pnpm install --prod --no-frozen-lockfile --ignore-scripts --registry=https:/
 
 # === 构建期断言：把常见低级错误在 docker build 阶段就暴露，而非等到容器启动才报 ===
 # 1) next 可执行文件必须存在（之前曾因 --filter 缺 packages/ 导致 .bin/next 缺失）
-RUN test -x /app/node_modules/.bin/next || (echo "ERROR: next binary missing at /app/node_modules/.bin/next" && exit 1)
+#    失败时 dump 目录结构协助排查：.bin 实际位置、next 包是否安装、app 下 node_modules 形态。
+RUN if [ -x /app/node_modules/.bin/next ]; then \
+      echo "[OK] next binary present at /app/node_modules/.bin/next"; \
+    else \
+      echo "ERROR: next binary missing at /app/node_modules/.bin/next"; \
+      echo "---- diagnostics ----"; \
+      echo "[ls /app/node_modules/.bin | head]"; ls -la /app/node_modules/.bin 2>/dev/null | head -20; \
+      echo "[ls /app/app/node_modules/.bin | head]"; ls -la /app/app/node_modules/.bin 2>/dev/null | head -20; \
+      echo "[next pkg in /app/node_modules]"; ls -la /app/node_modules/next 2>/dev/null || echo "  /app/node_modules/next NOT FOUND"; \
+      echo "[next pkg in /app/app/node_modules]"; ls -la /app/app/node_modules/next 2>/dev/null || echo "  /app/app/node_modules/next NOT FOUND"; \
+      echo "[pnpm-lock contains next?]"; grep -c '"next@' /app/pnpm-lock.yaml 2>/dev/null || echo "  lockfile grep failed"; \
+      echo "----------------------"; \
+      exit 1; \
+    fi
 # 2) 构建产物 dist 必须存在（next build 失败或 distDir 配置错位会导致缺失）
 RUN test -d /app/app/dist && test -f /app/app/dist/BUILD_ID \
   || (echo "ERROR: app/dist missing or incomplete (next build may have failed)" && exit 1)
