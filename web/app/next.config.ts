@@ -9,7 +9,6 @@ const nextConfig: NextConfig = {
   distDir: 'dist',
   reactStrictMode: false,
   allowedDevOrigins: ['10.10.18.71'],
-  output: 'standalone',
   assetPrefix: '/panda-wiki-app-assets',
   logging: {
     fetches: {
@@ -35,7 +34,8 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     const rewritesPath = [];
-    const staticFileTarget = process.env.STATIC_FILE_TARGET || process.env.TARGET;
+    const staticFileTarget =
+      process.env.STATIC_FILE_TARGET || process.env.TARGET;
     if (staticFileTarget) {
       rewritesPath.push({
         source: '/static-file/:path*',

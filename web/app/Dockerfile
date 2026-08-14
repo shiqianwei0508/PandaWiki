@@ -27,21 +27,40 @@ RUN pnpm install --no-frozen-lockfile --registry=https://registry.npmmirror.com
 # 构建 app（Next.js standalone 输出到 dist/）
 RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter panda-wiki-app build
 
-# 运行阶段
+# 运行阶段：放弃 standalone，改用官方 next start，依赖在容器内 pnpm install 真实安装
+# （避免 pnpm 软链 + standalone tracing 在容器内断链导致 require('next') 失败）。
 FROM harbor.gbim.vip/dockerio/node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+
+# 国内 npm/pnpm 镜像源（同 builder，@ctzhian/* 等均为公共包，无需私有源）
+ENV PNPM_HOME=/pnpm
+ENV npm_config_registry=https://registry.npmmirror.com
+ENV PNPM_CONFIG_REGISTRY=https://registry.npmmirror.com
+
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
+
 # 必须监听 3010：Caddy 反代目标为 app:3010，且后端 knowledge_base.go 写死站点地址为 :3010
 ENV PORT=3010
-# standalone 输出为 standalone/app/，server.js 在 standalone/app/server.js。
-# 直接复制 standalone/app 内容到 /app，使 server.js 位于 /app/server.js，
-# 其内部 process.chdir(__dirname) 后从 ./dist 加载 Next 产物。
-COPY --from=builder /src/app/dist/standalone/app ./
-COPY --from=builder /src/app/dist/static ./.next/static
+
+# 复制 workspace 清单与 app 配置/源码（仅用于 pnpm install --prod 安装真实依赖，
+# 以及 next start 读取 next.config.ts / tsconfig.json）。
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json* tsconfig.base.json ./
+COPY app/package.json ./app/package.json
+COPY app/next.config.ts ./app/next.config.ts
+COPY app/tsconfig.json ./app/tsconfig.json
+
+# 仅安装 app 生产依赖（--prod 跳过 devDeps；--filter 只解析 panda-wiki-app 及其传递依赖，
+# 不会把 admin 等其它 workspace 包拉进 /app/node_modules）。
+# 显式 --no-frozen-lockfile：根 package.json 直接依赖 @tiptap/extension-drag-handle@3.27.1
+# （满足 @ctzhian/tiptap 的 peer，详见 builder 阶段注释）。
+RUN pnpm install --prod --no-frozen-lockfile --filter panda-wiki-app... --registry=https://registry.npmmirror.com
+
+# 复制 Next 构建产物与静态资源（用 next start 而非 standalone server.js）。
+# next.config 中 distDir: 'dist'，故构建产物复制到 /app/dist（与 distDir 一致）。
+COPY --from=builder /src/app/dist ./dist
 COPY --from=builder /src/app/public ./public
-# standalone tracing 在 pnpm workspace 下未将 next 框架打进 standalone/app/node_modules，
-# 而 server.js 通过 require('next') 启动 SSR 进程，因此需从 builder 复制完整依赖树。
-# Docker COPY 会解引用 pnpm 软链，将真实文件复制到 /app/node_modules。
-COPY --from=builder /src/node_modules ./node_modules
+
 EXPOSE 3010
-CMD ["node", "server.js"]
+# next start 会自动读取 next.config.ts 中的 distDir（dist），在 cwd /app 下启动 SSR。
+CMD ["node_modules/.bin/next", "start", "-p", "3010"]
