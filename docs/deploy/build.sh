@@ -20,8 +20,8 @@ PUSH="${PUSH:-1}"
 BUILD_TARGETS=(
   "backend:Dockerfile.api:pandawiki-api"
   "backend:Dockerfile.consumer:pandawiki-consumer"
-  "web:Dockerfile:pandawiki-app"
-  "web:Dockerfile:pandawiki-admin"
+  "web:app/Dockerfile:pandawiki-app"
+  "web:admin/Dockerfile:pandawiki-admin"
 )
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
