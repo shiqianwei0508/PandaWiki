@@ -39,5 +39,9 @@ ENV PORT=3010
 COPY --from=builder /src/app/dist/standalone/app ./
 COPY --from=builder /src/app/dist/static ./.next/static
 COPY --from=builder /src/app/public ./public
+# standalone tracing 在 pnpm workspace 下未将 next 框架打进 standalone/app/node_modules，
+# 而 server.js 通过 require('next') 启动 SSR 进程，因此需从 builder 复制完整依赖树。
+# Docker COPY 会解引用 pnpm 软链，将真实文件复制到 /app/node_modules。
+COPY --from=builder /src/node_modules ./node_modules
 EXPOSE 3010
 CMD ["node", "server.js"]
