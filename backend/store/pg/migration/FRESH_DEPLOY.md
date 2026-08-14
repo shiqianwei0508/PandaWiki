@@ -15,7 +15,7 @@ psql -U <user> -d <db_name> -f backend/store/pg/migration/full_fresh_deploy.sql
 
 3. Start PandaWiki services normally.
 
-The merged SQL sets `schema_migrations` to the current version (`39`, `dirty=false`) for fresh installs.
+The merged SQL sets `schema_migrations` to the current version (`41`, `dirty=false`) for fresh installs.
 
 ## Important
 
