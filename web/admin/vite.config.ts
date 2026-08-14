@@ -93,6 +93,8 @@ export default defineConfig(({ command, mode }) => {
   const flyVersion = buildFlyVersion();
 
   return {
+    // 后台通过外层 Nginx 以 /admin 子路径发布，资源引用统一带该前缀
+    base: '/admin/',
     define: {
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(flyVersion),
     },

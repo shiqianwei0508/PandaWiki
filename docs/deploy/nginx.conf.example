@@ -1,0 +1,87 @@
+# PandaWiki 单域名反向代理示例
+# 默认访问前台（app）；以 /admin 前缀访问后台管理；
+# API、分享、静态文件统一经本 Nginx 转发到对应容器。
+#
+# 部署形态：Nginx 与 PandaWiki 容器不在同一台服务器。
+#   >>> 请将下面 upstream 中的 容器宿主机IP 改成"运行 docker-compose 的那台机器"
+#       的内网/可达 IP（或域名）。本 Nginx 在另一台服务器，不能用 127.0.0.1。<<<
+#   端口约定（docker-compose 已绑定 0.0.0.0 对外）：
+#     api    8000
+#     app    3010
+#     admin  2443
+#     minio  9000
+#
+# 请将本文件放置于 /etc/nginx/conf.d/ 下，并替换以下变量：
+#   wiki.example.com  -> 你的域名
+#   /etc/nginx/certs/ -> 你的证书路径
+#   容器宿主机IP        -> 运行 docker-compose 的机器 IP（不是 127.0.0.1）
+#
+# 若需让各知识库的分享链接/sitemap/OAuth 回调等使用固定对外域名，
+# 可在 docker-compose.yml 的 api 服务中设置 KB_BASE_URL（如 https://wiki.example.com），
+# 留空时前台会自动用浏览器当前域名兜底。详见 docs/DEPLOYMENT.md 3.5。
+
+# === 上游：指向运行 PandaWiki 容器的宿主机（跨机部署，务必改成真实可达地址） ===
+upstream pw_api   { server 容器宿主机IP:8000; }
+upstream pw_app   { server 容器宿主机IP:3010; }
+upstream pw_admin { server 容器宿主机IP:2443; }
+upstream pw_minio { server 容器宿主机IP:9000; }
+
+# HTTP 强制跳转 HTTPS
+server {
+    listen 80;
+    server_name wiki.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name wiki.example.com;
+
+    ssl_certificate     /etc/nginx/certs/wiki.example.com.crt;
+    ssl_certificate_key /etc/nginx/certs/wiki.example.com.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    # 通用反代头
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # ---------- 后台管理（/admin 前缀） ----------
+    # 后台 API：剥离 /admin 前缀后转发到 api
+    location /admin/api/ {
+        proxy_pass http://pw_api/api/;
+    }
+    # 后台分享接口
+    location /admin/share/ {
+        proxy_pass http://pw_api/share/;
+    }
+    # 后台静态文件（图片等）：转发到 minio
+    location /admin/static-file/ {
+        proxy_pass http://pw_minio/static-file/;
+    }
+    # 后台页面与前端资源：剥离 /admin 前缀转发到 admin 容器（SPA 由 server.cjs 回退）
+    location /admin/ {
+        proxy_pass http://pw_admin/;
+    }
+    # /admin 不带尾斜杠时重定向，保证资源相对路径正确
+    location = /admin {
+        return 301 /admin/;
+    }
+
+    # ---------- 前台 app 的 API / 分享 / 静态文件 ----------
+    location /api/ {
+        proxy_pass http://pw_api;
+    }
+    location /share/ {
+        proxy_pass http://pw_api;
+    }
+    location /static-file/ {
+        proxy_pass http://pw_minio;
+    }
+
+    # ---------- 默认：前台站点 ----------
+    location / {
+        proxy_pass http://pw_app;
+    }
+}

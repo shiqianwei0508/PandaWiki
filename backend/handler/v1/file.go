@@ -120,8 +120,9 @@ func (h *FileHandler) UploadByUrl(c echo.Context) error {
 //	@Success		200		{object}	domain.AnydocUploadResp
 //	@Router			/api/v1/file/upload/anydoc [post]
 func (h *FileHandler) UploadAnydoc(c echo.Context) error {
-	clientIP := fmt.Sprintf("%s.17", h.config.SubnetPrefix)
-	if utils.GetClientIPFromRemoteAddr(c) != clientIP {
+	// 仅允许内网/本机来源调用（Nginx 反代、Docker 网关等），
+	// 不再依赖 caddy 场景下固定的 SubnetPrefix.17 源 IP 校验
+	if !utils.IsPrivateOrReservedIP(utils.GetClientIPFromRemoteAddr(c)) {
 		return c.JSON(http.StatusUnauthorized, domain.AnydocUploadResp{
 			Code: 1,
 			Err:  "invalid required",

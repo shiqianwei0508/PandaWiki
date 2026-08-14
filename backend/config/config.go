@@ -130,7 +130,7 @@ func NewConfig() (*Config, error) {
 			Enabled: true,
 			DSN:     "https://2a4cff1ae04b624ffc72663f523024ff@sentry.baizhi.cloud/4",
 		},
-		CaddyAPI:     "/app/run/caddy-admin.sock",
+		CaddyAPI:     "",
 		SubnetPrefix: "169.254.15",
 	}
 

@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -56,6 +57,10 @@ func NewKnowledgeBaseRepository(db *pg.DB, config *config.Config, logger *log.Lo
 
 func (r *KnowledgeBaseRepository) SyncKBAccessSettingsToCaddy(ctx context.Context, kbList []*domain.KnowledgeBaseListItem) error {
 	if len(kbList) == 0 {
+		return nil
+	}
+	// 未配置 caddy admin api（标准 Nginx 部署）时跳过动态路由同步
+	if strings.TrimSpace(r.config.CaddyAPI) == "" {
 		return nil
 	}
 	firstKB := kbList[0]

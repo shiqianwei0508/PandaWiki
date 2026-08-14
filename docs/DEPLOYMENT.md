@@ -1,10 +1,15 @@
-# 乘风版部署指南（Docker 多方案）
+# 乘风版部署指南（Docker 单域名部署）
 
-本文提供三种可落地的 Docker 部署方案：
+本文提供两种可落地的 Docker 部署方案，最终统一通过**单域名 + Nginx 反向代理**对外提供服务：
+
+- 默认访问前台站点；
+- 以 `/admin` 路径前缀访问后台管理（例如 `https://wiki.example.com/admin`）；
+- API、分享、静态文件统一经 Nginx 转发到对应容器。
 
 1. 手动安装环境 + 服务器源码构建部署（Build 模式）
 2. 方案 B：预构建镜像部署（Image 模式，推荐生产）
-3. 外层 Nginx + 内层 Caddy（推荐公网生产）
+
+> 原设计中的 Caddy（用于按知识库动态下发访问规则）已在企业单域名部署中移除，改由 Nginx 一个入口统一路由，不再需要多域名、多端口、多证书。
 
 ## 1. 方式对比
 
@@ -12,7 +17,6 @@
 | --- | --- | --- | --- |
 | 手动安装环境 + Build 模式 | 开发、联调、快速验证 | 改完代码即可在服务器本地构建 | 首次配置步骤较多；构建耗时较长 |
 | 方案 B（预构建镜像） | 生产环境、稳定交付 | 发布快、可回滚、服务器负载低 | 需要先在 CI 产出镜像 |
-| 外层 Nginx + 内层 Caddy | 生产环境、统一 80/443 出口 | 可以复用现有 Nginx 证书与网关体系 | 不能移除 Caddy，Nginx 仅做外层入口 |
 
 ## 2. 环境清单与推荐版本
 
@@ -26,8 +30,9 @@
 
 | 组件 | 推荐版本 | 说明 |
 | --- | --- | --- |
-| Docker Engine | `24.x+` | 三种部署方式都需要 |
+| Docker Engine | `24.x+` | 两种部署方式都需要 |
 | Docker Compose Plugin | `v2.24+` | 使用 `docker compose` 命令 |
+| Nginx | `1.24+` | 对外唯一入口（反向代理 + TLS） |
 | Git | `2.30+` | 拉取代码 |
 | Node.js | `22.x` | 仅 Build 模式需要 |
 | pnpm | `10.x` | 仅 Build 模式需要 |
@@ -37,7 +42,6 @@
 | MinIO | `latest`（容器） | 对象存储 |
 | Qdrant | `v1.14.1`（容器） | 向量检索 |
 | Raglite | `v2.14.1`（容器） | RAG 服务 |
-| Caddy | `2.10-alpine`（容器） | 知识库访问规则与动态路由 |
 
 ## 3. 通用准备
 
@@ -65,6 +69,7 @@ cp .env.example .env
 - `JWT_SECRET`
 - `ADMIN_PASSWORD`
 - `DEV_KB_ID`
+- `KB_BASE_URL`（可选）：站点对外域名。用于拼接分享链接、sitemap、OAuth 等绝对 URL。单域名 Nginx 部署下可留空（前台自动用浏览器当前域名兜底）；如需全局指定，填完整地址如 `https://wiki.example.com`，作用于所有未单独配置 `base_url` 的知识库。详见下方「3.5」。
 
 仅 Image 模式额外需要：
 
@@ -91,18 +96,75 @@ psql -U panda-wiki -d panda-wiki
 
 如果使用 Image 模式，可将命令中的 `docker-compose.build.yml` 替换为 `docker-compose.image.yml`。
 
-### 3.4 端口职责与流量路径（当前默认）
+### 3.4 端口职责与流量路径（单域名模式）
 
-- `3010`：前台入口，由 `panda-wiki-caddy` 监听并反向代理到 `api/app/minio`。
-- `2443`：后台管理入口（`panda-wiki-admin`）。
-- `8000`：API 直连入口（通常用于健康检查、联调）。
-- `5432/6379/4222/6333/9000`：数据库与中间件内部端口，默认不对公网暴露。
+> **部署形态说明**：Nginx 与运行 docker-compose 的宿主机是**两台不同的服务器**。
+> 因此各容器端口在 compose 中绑定 `0.0.0.0`（对所有网卡开放），由部署在独立服务器上的
+> Nginx 通过**容器宿主机的内网/可达 IP** 反代过来。注意：请用**宿主防火墙仅放行 Nginx
+> 服务器 IP**，避免这些端口直接暴露公网。
 
-说明：`panda-wiki-app` 当前只在容器网络 `expose 3010`，不会直接映射宿主机 `3010`，避免与 Caddy 冲突。
+| 容器端口 | 绑定地址 | 用途 |
+| --- | --- | --- |
+| `3010` | `0.0.0.0:3010` | 前台站点（app） |
+| `2443` | `0.0.0.0:2443` | 后台管理（admin，纯静态 HTTP） |
+| `8000` | `0.0.0.0:8000` | API 容器 |
+| `9000` | `0.0.0.0:9000` | MinIO 对象存储（供静态文件 `/static-file`） |
+| `5432/6379/4222/9001` | 容器网络内 | 数据库与中间件，不对宿主机暴露 |
 
-### 3.5 从旧编排升级到当前网络模型（执行一次）
+流量路径（单域名 `wiki.example.com`，Nginx 在独立服务器）：
 
-如果你之前使用过旧版本编排（`app` 直映射 `3010`），升级到当前版本建议先执行一次完整重建：
+- `wiki.example.com/`            → Nginx `location /`     → app（`<宿主机IP>:3010`）——前台默认站点
+- `wiki.example.com/admin`       → Nginx `location /admin/`→ admin（`<宿主机IP>:2443`，剥离 `/admin` 前缀）
+- `wiki.example.com/admin/api/*` → Nginx `location /admin/api/` → api（`<宿主机IP>:8000`，剥离 `/admin` 前缀）
+- `wiki.example.com/api/*`       → Nginx `location /api/`    → api（`<宿主机IP>:8000`）
+- `wiki.example.com/share/*`     → Nginx `location /share/`   → api（`<宿主机IP>:8000`）
+- `wiki.example.com/static-file/*`→ Nginx `location /static-file/`→ MinIO（`<宿主机IP>:9000`）
+
+> `<宿主机IP>` = 运行 docker-compose 那台机器的内网/可达 IP（不是 `127.0.0.1`，因为 Nginx 在另一台机器）。
+
+说明：
+
+- 后台 `admin` 容器内置的是纯 HTTP 静态服务器（`web/admin/server.cjs`，只托管 `dist`，**不代理 `/api`**）。所有接口请求（`/admin/api/*`、`/admin/share/*`）都以「同源 + `/admin` 前缀」发给 Nginx，由 Nginx 转发到 API 容器；直接访问 `http://<ip>:2443` 因无 `/api` 处理能力而无法登录，必须经 Nginx。
+- 后台前端 `Vite base` 已设为 `/admin/`，构建产物默认带 `/admin` 前缀；Nginx 把 `/admin` 前缀剥离后转发给 admin 容器即可命中 `dist` 下的资源。
+- 容器统一使用 `172.29.0.0/24` 网段，各服务固定 IP（见 `docker-compose.*.yml` 的 `ipv4_address`）。服务间通过容器名互访，不受该固定 IP 影响。
+- 持久化目录全部使用 `docker-compose.yml` 同级目录的 `./data/<服务>`，**不使用 Docker named volume**，便于直接备份与迁移。
+
+### 3.5 站点对外域名（KB_BASE_URL）
+
+前台/后台在拼接**完整对外绝对 URL** 时会用到域名，典型场景：
+
+- 分享链接、sitemap、robots
+- OAuth / 微信 / 飞书 / 钉钉等第三方登录的回调地址
+- SSE 文档来源、富媒体资源绝对地址
+
+#### 配置位置
+
+在 `docker-compose.*.yml` 的 **`panda-wiki-api` 服务**的 `environment` 中（已预留占位）：
+
+```yaml
+panda-wiki-api:
+  environment:
+    # 站点对外域名，作用于所有未单独配置 base_url 的知识库
+    KB_BASE_URL: ""          # 留空 或 https://wiki.example.com
+```
+
+同时也可在 `.env` 中存放同名变量（`KB_BASE_URL=...`），compose 会读取。
+
+#### 取值优先级与兜底逻辑
+
+| 来源 | 优先级 | 说明 |
+| --- | --- | --- |
+| 后台「知识库设置」中填写的 `base_url` | 最高 | 每个知识库可单独指定 |
+| `KB_BASE_URL`（docker-compose 注入） | 中 | 作为未单独配置知识库的全局兜底 |
+| 浏览器当前域名（请求 origin） | 兜底 | **单域名 Nginx 部署推荐留空**，前台自动用 `Host`/`X-Forwarded-Proto` 推导 |
+
+> 单域名 Nginx 部署（本文档默认架构）下，`KB_BASE_URL` **可以留空**：前台会在运行时用访问它的实际域名兜底，后台接口走同源 `/admin` 前缀也不需要此值。仅当你需要让所有知识库统一使用某个固定对外域名（例如生成 canonical/sitemap 时）时，才显式填写。
+
+> 注意：`KB_BASE_URL` 是给「全局未单独配置的知识库」兜底用的。它**不会覆盖**你在后台「知识库设置」里已明确填写的 `base_url`。
+
+### 3.6 从旧编排升级（执行一次）
+
+如果你之前使用过旧版本编排（含 Caddy、旧网段、named volume），升级时建议先完整重建：
 
 ```bash
 docker compose -f docker-compose.build.yml down --remove-orphans
@@ -116,6 +178,8 @@ docker compose -f docker-compose.image.yml down --remove-orphans
 docker compose -f docker-compose.image.yml pull
 docker compose -f docker-compose.image.yml up -d
 ```
+
+> 注意：网络从 `172.19.0.0/16` 改为 `172.29.0.0/24`、且持久化从 named volume 改为 `./data/*` 后，旧数据不会自动迁移。升级前请先备份旧 volume（PostgreSQL / MinIO 数据）。
 
 ## 4. 方式一：手动安装环境 + 服务器源码构建部署（Build 模式）
 
@@ -186,7 +250,7 @@ docker compose -f docker-compose.build.yml up -d --build
 ```bash
 docker compose -f docker-compose.build.yml ps
 curl -sS --retry 10 --retry-delay 2 --retry-connrefused http://127.0.0.1:8000/health
-curl -k -I https://127.0.0.1:2443 | head -n 5
+curl -I http://127.0.0.1:2443 | head -n 5
 curl -I http://127.0.0.1:3010 | head -n 5
 ```
 
@@ -279,19 +343,29 @@ git push origin v2.6.2
 - `docker.io/caodanv/pandawiki-app:v2.6.2`
 - `docker.io/caodanv/pandawiki-admin:v2.6.2`
 
-## 6. 方式三：外层 Nginx + 内层 Caddy（推荐公网生产）
+## 6. 单域名 Nginx 反向代理（对外唯一入口，推荐生产）
 
-适用场景：你需要统一 80/443 出口、复用现有 Nginx 证书和 WAF/CDN 策略。
+适用场景：统一 `80/443` 出口、复用现有 Nginx 证书与网关策略；一个域名同时承载前台与后台，后台以 `/admin` 路径访问。
 
 ### 6.1 核心原则
 
-- 继续使用当前 Docker 编排（Build 或 Image 均可）。
-- 保留 `panda-wiki-caddy`，不要替换掉它。
-- Nginx 仅做外层入口，将流量转发到本机 `3010/2443`。
+- 后台（`admin`）经 Nginx 以 `/admin` 子路径发布，无需独立域名与证书。
+- 前台默认访问；`/admin` 前缀访问后台。
+- `admin` 容器是纯静态服务器、不代理接口，因此 `/admin/api`、`/admin/share` 由 Nginx 转发到 API（宿主 `8000`）；`/admin/static-file` 转发到 MinIO（宿主 `9000`）。
+- 其余 `/api`、`/share`、`/static-file` 为前台 app 使用，同样转发到对应容器。
 
 ### 6.2 Nginx 参考配置
 
+完整示例见 `docs/deploy/nginx.conf.example`，核心如下：
+
 ```nginx
+# upstream 指向"运行 docker-compose 的那台宿主机"的内网/可达 IP（Nginx 在独立服务器，不能是 127.0.0.1）
+# 完整版见 docs/deploy/nginx.conf.example（含 ssl、反代头等），此处为核心摘录
+upstream pw_api   { server 容器宿主机IP:8000; }
+upstream pw_app   { server 容器宿主机IP:3010; }
+upstream pw_admin { server 容器宿主机IP:2443; }
+upstream pw_minio { server 容器宿主机IP:9000; }
+
 server {
     listen 80;
     server_name wiki.example.com;
@@ -302,62 +376,62 @@ server {
     listen 443 ssl http2;
     server_name wiki.example.com;
 
-    ssl_certificate     /etc/nginx/certs/wiki.crt;
-    ssl_certificate_key /etc/nginx/certs/wiki.key;
+    ssl_certificate     /etc/nginx/certs/wiki.example.com.crt;
+    ssl_certificate_key /etc/nginx/certs/wiki.example.com.key;
 
-    location / {
-        proxy_pass http://127.0.0.1:3010;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
+    # 通用反代头
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
 
-server {
-    listen 443 ssl http2;
-    server_name admin.example.com;
+    # ---------- 后台管理（/admin 前缀） ----------
+    # Nginx 在独立服务器，upstream 指向"运行 docker-compose 的宿主机 IP"，不可用 127.0.0.1
+    location /admin/api/      { proxy_pass http://pw_api/api/; }
+    location /admin/share/    { proxy_pass http://pw_api/share/; }
+    location /admin/static-file/ { proxy_pass http://pw_minio/static-file/; }
+    location /admin/          { proxy_pass http://pw_admin/; }
+    location = /admin         { return 301 /admin/; }
 
-    ssl_certificate     /etc/nginx/certs/admin.crt;
-    ssl_certificate_key /etc/nginx/certs/admin.key;
+    # ---------- 前台 app 的 API / 分享 / 静态文件 ----------
+    location /api/         { proxy_pass http://pw_api; }
+    location /share/       { proxy_pass http://pw_api; }
+    location /static-file/ { proxy_pass http://pw_minio; }
 
-    location / {
-        proxy_pass https://127.0.0.1:2443;
-        proxy_ssl_verify off;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
+    # ---------- 默认：前台站点 ----------
+    location / { proxy_pass http://pw_app; }
 }
 ```
 
-### 6.3 为什么不能直接用 Nginx 平替 Caddy
+要点：
 
-后端会按知识库配置动态下发访问规则，并依赖路由层自动注入 `X-KB-ID`。当前实现直接调用 Caddy Admin API（Unix Socket）动态更新配置。若直接移除 Caddy，需要额外开发一套 Nginx 动态配置与热更新机制。
+- `/admin/api/`、`/admin/share/`、`/admin/static-file/` 用**最长前缀**优先命中，剥离 `/admin` 前缀后转发到对应容器；`/admin/`（页面/资源）剥离 `/admin` 后转发到 admin 容器（SPA 由 `server.cjs` 回退）。
+- `location = /admin` 处理不带尾斜杠的根路径，避免资源相对路径错误。
+- 后台前端资源（图片、JS/CSS）均带 `/admin` 前缀，因此 Nginx 只需把 `/admin/...` 转发给 admin 容器即可，无需为每个资源单独写规则。
 
 ## 7. 访问说明
 
-直连模式（无外层 Nginx）：
-
-- 后台管理：`https://<server-ip>:2443`
-- 前台站点：`http://<server-ip>:3010`
-- API 健康检查：`http://<server-ip>:8000/health`
-
-外层 Nginx 模式（推荐）：
+单域名模式（推荐，Nginx 已配置）：
 
 - 前台站点：`https://wiki.example.com`
-- 后台管理：`https://admin.example.com`
+- 后台管理：`https://wiki.example.com/admin`
+- API 健康检查：在**运行 docker-compose 的宿主机**上执行 `curl http://127.0.0.1:8000/health`
+
+> 容器端口已绑定 `0.0.0.0` 以便独立服务器上的 Nginx 跨机访问；请勿在公网直接暴露
+> `2443/8000/3010/9000`，应通过**宿主防火墙仅放行 Nginx 服务器 IP**，统一经 Nginx 对外。
 
 ## 8. 安全建议（生产必做）
 
 1. `.env` 中全部密码改为高强度随机值，禁止使用示例密码。
-2. 外层 Nginx 模式下，建议只对公网开放 `80/443`，限制 `8000/2443/3010` 仅本机或内网访问。
+2. 对外仅开放 Nginx 的 `80/443`；容器端口绑定 `0.0.0.0` 是为了让独立服务器上的 Nginx 跨机访问，请用**宿主防火墙仅放行 Nginx 服务器 IP**，避免 `8000/2443/3010/9000` 直接暴露公网。
 3. 为对外域名配置真实 TLS 证书，不使用自签证书直接暴露公网。
-4. 定期备份：PostgreSQL 数据卷、MinIO 数据卷、`docs/deploy/.env`。
+4. 定期备份：`./data/postgres`、`./data/minio`、`docs/deploy/.env`。
 5. 按 AGPL-3.0 要求提供当前运行版本对应源码链接。
 
 ## 9. 相关文件
 
 - Build 模式编排：`docs/deploy/docker-compose.build.yml`
 - Image 模式编排：`docs/deploy/docker-compose.image.yml`
+- Nginx 单域名示例：`docs/deploy/nginx.conf.example`
 - 部署变量模板：`docs/deploy/.env.example`
 - 首次完整 SQL：`backend/store/pg/migration/full_fresh_deploy.sql`
