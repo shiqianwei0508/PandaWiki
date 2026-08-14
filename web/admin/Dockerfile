@@ -30,6 +30,7 @@ FROM harbor.gbim.vip/dockerio/node:22-alpine AS runner
 WORKDIR /opt/frontend
 ENV PORT=2443
 COPY --from=builder /src/admin/dist /opt/frontend/dist
-COPY server.cjs /opt/frontend/server.cjs
+# 构建上下文为 web/ 根，server.cjs 位于 web/admin 下
+COPY admin/server.cjs /opt/frontend/server.cjs
 EXPOSE 2443
 CMD ["node", "server.cjs"]
