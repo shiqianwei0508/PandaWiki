@@ -14,13 +14,14 @@ ENV CI=true
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
 # 仅复制需要的 workspace 文件与源码（利用层缓存）
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json* ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json* tsconfig.base.json ./
 COPY packages ./packages
 COPY admin ./admin
 COPY app ./app
 
-# 安装依赖。显式 --no-frozen-lockfile：让 workspace overrides（tiptap 3.27.1）写入并生效，
-# 避免解析到 3.10.1 导致 normalizeNestedOptions 缺失（pnpm 10 默认 install 为 frozen 模式）。
+# 安装依赖。显式 --no-frozen-lockfile：pnpm 10 默认 install 为 frozen 模式，
+# 而根 package.json 直接依赖 @tiptap/extension-drag-handle@3.27.1（用于满足
+# @ctzhian/tiptap 经 drag-handle-react 引入的 peer，3.10.1 缺 normalizeNestedOptions）。
 RUN pnpm install --no-frozen-lockfile --registry=https://registry.npmmirror.com
 
 # 构建 app（Next.js standalone 输出到 dist/）

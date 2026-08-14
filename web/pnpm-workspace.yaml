@@ -3,6 +3,10 @@ packages:
   - 'admin'
   - 'packages/*'
 
+# 顶层 overrides（pnpm-workspace.yaml 顶层键，非 pnpm. 命名空间）。
+# 强制把整条 @tiptap 3.27.1 家族锁死，使 @ctzhian/tiptap@3.0.4 拉进来的
+# @tiptap/extension-drag-handle 等从 3.10.1 改为 3.27.1，
+# 否则 prod build 会因 normalizeNestedOptions 缺失而失败（MISSING_EXPORT）。
 overrides:
   baseline-browser-mapping: ^2.9.19
   require-in-the-middle: ^7.5.2
@@ -38,19 +42,6 @@ overrides:
   mermaid: '>=11.12.1'
   prismjs: '>=1.30.0'
   typescript: '5.9.3'
-  # Pin the whole @tiptap 3.27.1 family so the drag-handle-react wrapper
-  # resolves against @tiptap/extension-drag-handle@3.27.1 (which exports
-  # normalizeNestedOptions). Without this, @ctzhian/tiptap@3.0.4 pulls in
-  # @tiptap/extension-drag-handle@3.10.1 and the prod build fails with
-  # [MISSING_EXPORT] "normalizeNestedOptions".
-  '@tiptap/core': '3.27.1'
-  '@tiptap/pm': '3.27.1'
-  '@tiptap/react': '3.27.1'
-  '@tiptap/extension-drag-handle': '3.27.1'
-  '@tiptap/extension-drag-handle-react': '3.27.1'
-  '@tiptap/extension-node-range': '3.27.1'
-  '@tiptap/extension-collaboration': '3.27.1'
-  '@tiptap/y-tiptap': '3.0.0'
   '@babel/core': 7.29.6
   '@opentelemetry/core': '>=2.8.0'
   '@sentry/nextjs': '>=10.27.0'

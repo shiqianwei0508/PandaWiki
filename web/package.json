@@ -17,8 +17,14 @@
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.12.1",
+  "pnpm": {
+    "overrides": {
+      "@tiptap/extension-drag-handle": "3.27.1"
+    }
+  },
   "dependencies": {
     "@ctzhian/tiptap": "3.0.4",
+    "@tiptap/extension-drag-handle": "3.27.1",
     "@ctzhian/ui": "^7.1.3",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",

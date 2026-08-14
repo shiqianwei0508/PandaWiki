@@ -3,7 +3,7 @@
 # 前端(admin/app)在容器内完成 pnpm install + build，无需宿主机预编译。
 #
 # 用法:
-#   ./build.sh                 # 构建并推送，tag 默认为 latest
+#   ./build.sh                 # 构建并推送，tag 默认为当前最新 commit 前 8 位短哈希
 #   ./build.sh v1.2.3          # 指定 tag
 #   TAG=v1.2.3 PUSH=0 ./build.sh   # 仅本地构建不推送
 #
