@@ -128,14 +128,22 @@ psql -U panda-wiki -d panda-wiki
 - 后台前端 `Vite base` 已设为 `/admin/`，构建产物默认带 `/admin` 前缀；Nginx 把 `/admin` 前缀剥离后转发给 admin 容器即可命中 `dist` 下的资源。
 
 > **⚠️ 必须配置知识库 ID（否则前台"啥也没有"）**
-> 前台 app 与 `/share` 接口都通过 `X-KB-ID` 头定位当前知识库（`web/app/src/utils/getServerHeader.ts:5`：
-> `kb_id = headers('x-kb-id') || process.env.DEV_KB_ID || ''`）。原 Caddy 会在转发时动态注入该头，
-> 去 Caddy 后必须由 **Nginx 注入** 或 **设置 `DEV_KB_ID` 环境变量** 二选一（可同时）：
-> - **Nginx 注入（推荐，单一配置点）**：在 `nginx.conf` 中 `set $kb_id "真实知识库ID";`，并在
->   `location /` 与 `location /share/` 加 `proxy_set_header X-KB-ID $kb_id;`（见 6.2）。
-> - **DEV_KB_ID 环境变量**：在 `.env` 把 `DEV_KB_ID=replace_with_kb_id` 改为真实 ID，compose 已将其
->   传入 app 容器（`DEV_KB_ID: ${DEV_KB_ID}`），app 运行期读 `process.env.DEV_KB_ID` 生效。
-> 若两者都为空，app 拿到空 `kb_id`，前端页面会因无知识库上下文而渲染为空。
+> 前台 app 与 `/share` 接口都通过 `X-KB-ID` 头定位当前知识库。代码实证：
+> - `web/app/src/utils/getServerHeader.ts:5`：`kb_id = headers('x-kb-id') || process.env.DEV_KB_ID || ''`
+> - `web/app/src/proxy.ts:98`：`kb_id = request.headers.get('x-kb-id') || process.env.DEV_KB_ID || ''`，
+>   并在 `proxy.ts:107` 把 `kb_id` 写入转发后端的 `x-kb-id` 头。
+> 原 Caddy 会在转发时动态注入 `X-KB-ID` 头，去 Caddy 后**必须由 Nginx 注入**。
+>
+> **⚠️ 不要依赖 `.env` 的 `DEV_KB_ID`**：app 是 Next.js 应用，`proxy.ts`/`getServerHeader.ts` 里
+> `process.env.DEV_KB_ID` 是**点号直接访问**，Next.js 在 `next build`（镜像构建阶段）会把它**内联**成
+> 编译时字面量；而 `DEV_KB_ID` 只在 compose **运行期**（`DEV_KB_ID: ${DEV_KB_ID}`）注入 `next start`
+> 进程，构建期 Dockerfile 未设置该变量 → 编译产物里已是空串，运行期容器设了也读不到。
+> （`web/app/Dockerfile` 中确认无任何 `DEV_KB_ID` 的 ARG/ENV。）
+>
+> **✅ 正确做法（唯一可靠）：Nginx 注入 `X-KB-ID` 头**
+> 在 `nginx.conf` 中 `set $kb_id "真实知识库ID";`，并在 `location /` 与 `location /share/` 加
+> `proxy_set_header X-KB-ID $kb_id;`（见 6.2）。`.env` 的 `DEV_KB_ID` 可保留但**不生效**，无需依赖。
+> 若未注入，app 拿到空 `kb_id`，前端页面因无知识库上下文而渲染为空。
 - 容器统一使用 `172.29.0.0/24` 网段，各服务固定 IP（见 `docker-compose.*.yml` 的 `ipv4_address`）。服务间通过容器名互访，不受该固定 IP 影响。
 - 持久化目录全部使用 `docker-compose.yml` 同级目录的 `./data/<服务>`，**不使用 Docker named volume**，便于直接备份与迁移。
 
