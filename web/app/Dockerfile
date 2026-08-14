@@ -33,7 +33,10 @@ WORKDIR /app
 ENV NODE_ENV=production
 # 必须监听 3010：Caddy 反代目标为 app:3010，且后端 knowledge_base.go 写死站点地址为 :3010
 ENV PORT=3010
-COPY --from=builder /src/app/dist/standalone ./
+# standalone 输出为 standalone/app/，server.js 在 standalone/app/server.js。
+# 直接复制 standalone/app 内容到 /app，使 server.js 位于 /app/server.js，
+# 其内部 process.chdir(__dirname) 后从 ./dist 加载 Next 产物。
+COPY --from=builder /src/app/dist/standalone/app ./
 COPY --from=builder /src/app/dist/static ./.next/static
 COPY --from=builder /src/app/public ./public
 EXPOSE 3010
